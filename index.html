@@ -152,6 +152,10 @@
               <span onclick="setLau('Lầu 3')">Lầu 3</span>
               <span onclick="setLau('Lầu 4')">Lầu 4</span>
               <span onclick="setLau('Lầu 5')">Lầu 5</span>
+              <span onclick="setLau('Lầu 6')">Lầu 6</span>
+              <span onclick="setLau('Lầu 7')">Lầu 7</span>
+              <span onclick="setLau('Lầu 8')">Lầu 8</span>
+              <span onclick="setLau('Lầu 9')">Lầu 9</span>
             </div>
           </div>
           <span class="mc on" id="thang-btn" onclick="toggleThang()">Thang bộ</span>
@@ -330,7 +334,7 @@ function buildText(){
     '💰 Giá: '+(gia||'{Giá}')+' - '+(mota||'{Mô tả}')+' - '+lauVal+', '+thangVal,
     '⚡ Điện: '+(dien||'{Giá điện}')+'k/Kwh',
     '💧 Nước: '+(nuoc||'{Giá nước}')+'k/'+nuocUnit,
-    '🛋️ Dịch vụ: '+(dv||'{Phí dịch vụ}')+'k/'+dvUnit,
+    '🛋️ Dịch vụ: '+(dv==='free'?'free':(dv||'{Phí dịch vụ}')+(dv?'k/'+dvUnit:'')),
     '🏍️ Xe: '+xeLine,
   ];
   if(moiOn) lines.unshift('Dự án mới');
@@ -427,11 +431,11 @@ function doParseAI(){
   const roomMatch = raw.match(/(?:mã\s*)?(?:ph[oòó]ng|p\.?)\s*[:\s]*([A-Za-z]*)(\d{2,3})\b/i);
   if(roomMatch){
     const n = parseInt(roomMatch[2][0]);
-    p.lau = n===0 ? 'Trệt' : (n>=1&&n<=5 ? 'Lầu '+n : null);
+    p.lau = n===0 ? 'Trệt' : (n>=1&&n<=9 ? 'Lầu '+n : null);
   }
   if(!p.lau){
     const floorMatch = raw.match(/\bl[aầ]u\s*(\d)\b/i);
-    if(floorMatch){ const n=parseInt(floorMatch[1]); p.lau=n<=5?'Lầu '+n:null; }
+    if(floorMatch){ const n=parseInt(floorMatch[1]); p.lau=n<=9?'Lầu '+n:null; }
   }
   if(!p.lau && /tr[eệ]t/i.test(raw)) p.lau='Trệt';
 
@@ -586,12 +590,13 @@ function applyParsed(p){
   } else markError('row-nuoc');
 
   if(p.dv !== null && p.dv !== undefined){
-    document.getElementById('inp-dv').value = p.dv === 0 ? '' : p.dv;
+    const isFree = p.dv === 'free';
+    document.getElementById('inp-dv').value = isFree ? 'free' : (p.dv === 0 ? '' : p.dv);
     const unit = p.dv_unit === 'người' ? 'người' : 'phòng';
     dvUnit = unit;
-    document.getElementById('suf-dv').textContent = 'k/'+unit;
-    document.getElementById('dv-phong').classList.toggle('on', unit==='phòng');
-    document.getElementById('dv-nguoi').classList.toggle('on', unit==='người');
+    document.getElementById('suf-dv').textContent = isFree ? '' : 'k/'+unit;
+    document.getElementById('dv-phong').classList.toggle('on', !isFree && unit==='phòng');
+    document.getElementById('dv-nguoi').classList.toggle('on', !isFree && unit==='người');
   } else markError('row-dv');
 
   if(p.xe !== null && p.xe !== undefined){
@@ -607,9 +612,9 @@ function applyParsed(p){
     }
   } else markError('row-xe');
 
-  const validLau = ['Trệt','Lầu 1','Lầu 2','Lầu 3','Lầu 4','Lầu 5'];
+  const validLau = ['Trệt','Lầu 1','Lầu 2','Lầu 3','Lầu 4','Lầu 5','Lầu 6','Lầu 7','Lầu 8','Lầu 9'];
   if(p.lau && validLau.includes(p.lau)){ setLau(p.lau); }
-  else { lauVal='Trệt'; document.getElementById('lau-btn').textContent='Trệt ▾'; markError('row-gia'); }
+  else { lauVal='Trệt'; document.getElementById('lau-btn').textContent='Trệt ▾'; }
 
   thangVal = p.thang === 'Thang máy' ? 'Thang máy' : 'Thang bộ';
   const tb = document.getElementById('thang-btn'); tb.textContent=thangVal; tb.classList.toggle('on', thangVal==='Thang bộ');
