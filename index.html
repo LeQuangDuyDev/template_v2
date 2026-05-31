@@ -437,7 +437,7 @@ function doParseAI(){
     const raw2 = s.replace(/[.,](?=\d{3}(?!\d))/g,''); // bỏ dấu phân cách nghìn
     const num = parseFloat(raw2.replace(',','.'));
     if(isNaN(num)) return null;
-    if(num >= 1000) return Math.round(num/1000);
+    if(num >= 1000) return parseFloat((num/1000).toFixed(3)).toString().replace(/\.?0+$/,'') * 1;
     return num; // đã là k rồi (vd 4)
   }
 
@@ -488,16 +488,17 @@ function doParseAI(){
   }
 
   // ── Điện ─────────────────────────────────────────────────
-  // 4k/kw, 4.000/kw, 4000/kwh, 4k/ký, điện 4k, điện: 4.000
+  // 4k/kw, 4.500/kwh, 4.000/kw, 4000/kwh, 4k/ký, điện 4k
   for(const line of lines){
     if(!/đi[eệ]n/i.test(line) && !/kw|k[yý]/i.test(line)) continue;
-    const m = line.match(/(\d+(?:[.,]\d+)?)\s*(?:\.?000)?\s*[\/k]?\s*(?:kw[h]?|k[yý]|kw)/i)
-           || line.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?/i);
-    if(m){ p.dien = toK(m[1]+(m[1].includes('.')||m[1].includes(',')? '':'')); break; }
+    // Bắt số có thể có dấu phân cách (4.500, 4.000, 4,500) rồi đứng trước /kwh hoặc /ký
+    const m = line.match(/(\d+(?:[.,]\d{3}))\s*[\/]\s*(?:kw[h]?|k[yý])/i)   // 4.500/kwh
+           || line.match(/(\d+(?:[.,]\d+)?)\s*k\s*[\/]\s*(?:kw[h]?|k[yý])/i) // 4k/kwh
+           || line.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})?)\s*k?/i);    // điện: 4.000
+    if(m){ p.dien = toK(m[1]); break; }
   }
-  // Đơn giản hơn: tìm số gần "kw" hoặc "ký"
   if(!p.dien){
-    const dm = raw.match(/(\d+(?:[.,]\d{3})?)\s*(?:đ|d|k|\.000)?\s*[\/]\s*(?:kw[h]?|k[yý])/i)
+    const dm = raw.match(/(\d+(?:[.,]\d{3})?)\s*[\/]\s*(?:kw[h]?|k[yý])/i)
             || raw.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})?)/i);
     if(dm) p.dien = toK(dm[1]);
   }
@@ -515,9 +516,12 @@ function doParseAI(){
   }
 
   // ── Dịch vụ ──────────────────────────────────────────────
+  // Từ khoá: dịch vụ, phí dịch, dv, dvu, phí Qly, phí quản lý, phí Q.lý
   for(const line of lines){
-    if(!/d[ịi]ch\s*v[ụu]|ph[ií]\s*d[ịi]ch|\bdv\b|\bdvu\b/i.test(line)) continue;
-    const m = line.match(/(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dvu)\s*[:\s]?\s*(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?\s*[\/]?\s*(ph[oòó]ng|ph\.?|ng[ưu][oờ]i|ng\.?|người)?/i);
+    if(!/d[ịi]ch\s*v[ụu]|ph[ií]\s*d[ịi]ch|\bdv\b|\bdvu\b|ph[ií]\s*q(?:ly|\.?l[yý]|u[aả]n\s*l[yý])/i.test(line)) continue;
+    // Nếu có "free" → dv free, ghi 0 để không báo lỗi
+    if(/free|mi[eễ]n\s*ph[ií]/i.test(line)){ p.dv = 0; p.dv_unit='phòng'; break; }
+    const m = line.match(/(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dvu|q(?:ly|\.?l[yý]|u[aả]n\s*l[yý]))\s*[:\s]?\s*(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?\s*[\/]?\s*(ph[oòó]ng|ph\.?|ng[ưu][oờ]i|ng\.?|người)?/i);
     if(m){
       p.dv = toK(m[1]);
       p.dv_unit = (m[2]||'').match(/ng[ưu]|người/i) ? 'người' : 'phòng';
@@ -526,20 +530,26 @@ function doParseAI(){
   }
 
   // ── Xe ───────────────────────────────────────────────────
-  // "free 2 xe/chiếc", "free 1 xe", "xe free", không đề cập → free
-  // "chỉ nhận X xe" → free X xe
-  // "100k/xe", "100.000/xe" → có giá
-  const xeLine = lines.find(l=>/\bxe\b/i.test(l)&&!/xe\s*điện|không\s*xe|cấm\s*xe/i.test(l));
+  const XE_EXCL = /xe\s*điện|không\s*xe|cấm\s*xe/i;
+  // Ưu tiên dòng có xe MÁY / xe gắn máy / xe: / + xe với free hoặc số tiền hoặc tối đa
+  const xeLine = lines.find(l=>/\bxe\b/i.test(l) && !XE_EXCL.test(l) &&
+    /free|mi[eễ]n|t[oố]i\s*đa|ch[ỉi]\s*nh[aậ]n|\d+\s*k|\d+(?:[.,]\d{3})/i.test(l));
   if(xeLine){
-    // Chỉ nhận X xe
-    const chiNhan = xeLine.match(/ch[ỉi]\s*nh[aậ]n\s*(\d+)\s*xe/i);
-    if(chiNhan){ p.xe = 'free '+chiNhan[1]+' xe'; }
+    // "tối đa X xe" hoặc "chỉ nhận X xe" → free X xe
+    const toiDa = xeLine.match(/t[oố]i\s*đa\s*(\d+)\s*xe/i)
+               || xeLine.match(/ch[ỉi]\s*nh[aậ]n\s*(\d+)\s*xe/i);
+    if(toiDa){ p.xe = 'free '+toiDa[1]+' xe'; }
     else{
-      const num = xeLine.match(/free\s*(\d+)\s*(?:xe|chi[eế]c|cái)/i)||xeLine.match(/(\d+)\s*(?:xe|chi[eế]c)\s*free/i);
+      const num = xeLine.match(/free\s*(\d+)\s*(?:xe|chi[eế]c|cái)/i)
+               || xeLine.match(/(\d+)\s*(?:xe|chi[eế]c)\s*free/i);
       if(num) p.xe = 'free '+num[1]+' xe';
-      else if(/free|mi[eễ]n\s*ph[ií]/i.test(xeLine)) p.xe = 'free xe';
-      else{
-        const price = xeLine.match(/(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?\s*(?:\/\s*xe)?/i);
+      else if(/free|mi[eễ]n\s*ph[ií]/i.test(xeLine)){
+        // Có free + có "tối đa X xe" cùng dòng
+        const maxXe = xeLine.match(/t[oố]i\s*đa\s*(\d+)/i);
+        p.xe = maxXe ? 'free '+maxXe[1]+' xe' : 'free xe';
+      } else {
+        const price = xeLine.match(/(\d+(?:[.,]\d{3})?)\s*k?\s*\/\s*xe/i)
+                   || xeLine.match(/(\d+(?:[.,]\d{3})?)\s*k/i);
         if(price) p.xe = String(toK(price[1]));
         else p.xe = 'free xe';
       }
@@ -597,7 +607,7 @@ function applyParsed(p){
 
   // Dịch vụ
   if(p.dv !== null && p.dv !== undefined){
-    document.getElementById('inp-dv').value = p.dv;
+    document.getElementById('inp-dv').value = p.dv === 0 ? '' : p.dv;
     const unit = p.dv_unit === 'người' ? 'người' : 'phòng';
     dvUnit = unit;
     document.getElementById('suf-dv').textContent = 'k/'+unit;
@@ -645,7 +655,7 @@ function applyParsed(p){
   if(!p.gia)   { missingNames.push('giá');      missingFocus.push('inp-gia'); }
   if(!p.dien)  { missingNames.push('điện');     missingFocus.push('inp-dien'); }
   if(!p.nuoc)  { missingNames.push('nước');     missingFocus.push('inp-nuoc'); }
-  if(!p.dv)    { missingNames.push('dịch vụ');  missingFocus.push('inp-dv'); }
+  if(p.dv === null || p.dv === undefined){ missingNames.push('dịch vụ');  missingFocus.push('inp-dv'); }
   if(!p.lau)   { missingNames.push('lầu'); }
 
   if(missingNames.length){
