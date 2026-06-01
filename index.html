@@ -236,7 +236,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const MOTA_OPTS = ['1PN','2PN','1PK','Studio','Gác','Ban công','Cửa sổ','Cửa sổ trời','Tách bếp','Máy giặt riêng','Thang máy'];
+const MOTA_OPTS = ['1PN','2PN','1PK','Studio','Duplex','Ban công','Cửa sổ','Cửa sổ trời','Tách bếp','Máy giặt riêng','Máy sấy','Bảo vệ'];
 const ADDR_LOWER = new Set(['đường','quận','phường','hẻm','ngõ','xã','thị','tổ','và','số','tại']);
 const NAV_IDS = ['inp-diachi','inp-gia','inp-dien','inp-nuoc','inp-dv','inp-xe'];
 const REQUIRED_ROWS = ['row-diachi','row-gia','row-dien','row-nuoc','row-dv','row-xe'];
@@ -393,7 +393,8 @@ document.getElementById('paste-ta').addEventListener('input', () => {
 // ── DV keyword regex (dùng chung cho cả test dòng lẫn bắt giá trị) ──────────
 // Khớp: dịch vụ, phí dịch, dv, dvu,
 //        phí Qly, phí Q.lý, phí Qlý, phí quản lý  (+tuỳ chọn "chung" phía sau)
-const DV_KW = /d[ịi]ch\s*v[ụu]|ph[ií]\s*d[ịi]ch|\bdv\b|\bdvu\b|ph[ií]\s*(?:qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?/i;
+//        phí dv, phí d.v (dv viết tắt sau "phí")
+const DV_KW = /d[ịi]ch\s*v[ụu]|ph[ií]\s*d[ịi]ch|(?<![A-Za-z\d])dvu(?![A-Za-z\d])|(?<![A-Za-z\d])dv[ụu](?![A-Za-z\d])|ph[ií]\s*d\.?v\.?\b|(?<![A-Za-z])dv(?:[:\s\/]|$)|ph[ií]\s*(?:qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?/i;
 
 function doParseAI(){
   const raw = document.getElementById('paste-ta').value.trim();
@@ -410,21 +411,36 @@ function doParseAI(){
   function toK(s){
     if(!s) return null;
     s = s.replace(/\s/g,'');
+    // Trường hợp đã có chữ k ở cuối: "4k", "4.5k", "200k"
     const kMatch = s.match(/^(\d+(?:[.,]\d+)?)k$/i);
     if(kMatch) return parseFloat(kMatch[1].replace(',','.'));
-    const raw2 = s.replace(/[.,](?=\d{3}(?!\d))/g,'');
-    const num = parseFloat(raw2.replace(',','.'));
+    // Chuẩn hóa dấu ngăn hàng nghìn kiểu VN: 4.000→4000, 100.000→100000, 200.000→200000
+    // Nhận dạng: chuỗi chỉ có chữ số + dấu chấm/phẩy ngăn hàng nghìn (nhóm 3 chữ số)
+    const cleanNum = s.replace(/[.,](?=\d{3}(?:[.,]|$))/g, '');
+    const num = parseFloat(cleanNum.replace(',','.'));
     if(isNaN(num)) return null;
-    if(num >= 1000) return parseFloat((num/1000).toFixed(3)).toString().replace(/\.?0+$/,'') * 1;
+    if(num >= 1000) return num / 1000;
     return num;
   }
 
   // ── Địa chỉ ──────────────────────────────────────────────
-  const addrRegex = /(?:đ[ịi]a\s*ch[ỉi](?:\s*d[ựu]\s*[aá]n)?\s*[:：]\s*)?(\d+(?:[\/\-]\d+)*\s+[A-ZÀÁẢÃẠĂẮẶẴẲẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ][^\n]*)/;
+  const addrRegex = /(?:đ[ịi]a\s*ch[ỉi](?:\s*d[ựu]\s*[aá]n)?\s*[:：]\s*)?(\d+[A-Za-z]*(?:[\/\-]\d+[A-Za-z]*)*\s+[A-ZÀÁẢÃẠĂẮẶẴẲẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ][^\n]*)/;
   for(const line of lines){
-    if(/gi[aá]|đi[eệ]n|n[ưu][oờớ]c|d[ịi]ch\s*v|xe\s*[:\d]|c[oọ]c|ph[ií]\s*(?:dv|d[ịi]ch)|hh\b|quy\s*m[oô]|n[oộ]i\s*th[aấ]t|mã\s*p/i.test(line)) continue;
+    if(/gi[aá]|đi[eệ]n|n[ưu][oờớ]c|d[ịi]ch\s*v|xe\s*[:\d]|c[oọ]c|ph[ií]\s*(?:dv|d[ịi]ch)|hh\b|quy\s*m[oô]|mã\s*p/i.test(line)) continue;
     const m = line.match(addrRegex);
-    if(m){ p.diachi = m[1].replace(/^\s*[\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}]\s*/u,'').trim(); break; }
+    if(m){
+        let addr = m[1].replace(/^\s*[\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}]\s*/u,'').trim();
+        // Bỏ số nhà thuần số ở đầu (vd: "25/6 Cửu Long" → "Cửu Long")
+        // Giữ lại nếu có chữ cái dính vào số (vd: "2F Lam Sơn" → giữ nguyên)
+        // Không strip nếu token đầu là chữ-số (2F, 3A, ...) → chỉ strip khi token đầu là thuần số
+        addr = addr.replace(/^(\d+[A-Za-z]?(?:[\/-]\d+[A-Za-z]*)*)\s+(?=[A-ZÀÁẢÃẠĂẮẶẴẲẶÂẤẦẨẪẬĐ])/u, (_, token) => {
+          // Bỏ số nhà thuần số hoặc dạng 2F, 3A (số + 1 ký tự chữ)
+          // Chỉ giữ nếu token có nhiều hơn 1 chữ cái (như tên riêng)
+          return /^[0-9]+[A-Za-z]?(?:\/[0-9]+[A-Za-z]?)*$/.test(token) ? '' : token + ' ';
+        });
+        p.diachi = addr;
+        break;
+      }
   }
 
   // ── Mã phòng → lầu ───────────────────────────────────────
@@ -462,21 +478,26 @@ function doParseAI(){
   // ── Điện ─────────────────────────────────────────────────
   for(const line of lines){
     if(!/đi[eệ]n/i.test(line) && !/kw|k[yý]/i.test(line)) continue;
-    const m = line.match(/(\d+(?:[.,]\d{3}))\s*[\/]\s*(?:kw[h]?|k[yý])/i)
+    const m = line.match(/(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]\s*(?:kw[h]?|k[yý])/i)
            || line.match(/(\d+(?:[.,]\d+)?)\s*k\s*[\/]\s*(?:kw[h]?|k[yý])/i)
-           || line.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})?)\s*k?/i);
+           || line.match(/đi[eệ]n\s*[:\s]\s*(\d+(?:[.,]\d{3})+)/i)
+           || line.match(/đi[eệ]n\s+(\d+(?:[.,]\d{3})+)\s*đ/i)
+           || line.match(/đi[eệ]n\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k/i);
     if(m){ p.dien = toK(m[1]); break; }
   }
   if(!p.dien){
-    const dm = raw.match(/(\d+(?:[.,]\d{3})?)\s*[\/]\s*(?:kw[h]?|k[yý])/i)
-            || raw.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})?)/i);
+    const dm = raw.match(/(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]\s*(?:kw[h]?|k[yý])/i)
+            || raw.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})+)/i);
     if(dm) p.dien = toK(dm[1]);
   }
 
   // ── Nước ─────────────────────────────────────────────────
   for(const line of lines){
     if(!/n[ưu][oờớ]c/i.test(line)) continue;
-    const m = line.match(/n[ưu][oờớ]c\s*[:\s]?\s*(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i);
+    const m = line.match(/n[ưu][oờớ]c\s*[:\s]\s*(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
+           || line.match(/n[ưu][oờớ]c\s+(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
+           || line.match(/n[ưu][oờớ]c\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
+           || line.match(/n[ưu][oờớ]c\s+(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i);
     if(m){
       p.nuoc = toK(m[1]);
       p.nuoc_unit = (m[2]||'').match(/m3|m[³3]/i) ? 'm3' : 'người';
@@ -507,8 +528,16 @@ for (const line of lines) {
   }
 
   // Case: có giá tiền
+  // DV_UNIT_PAT unused now (inline)
+  const DV_KW_VAL = /d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly/i;
   const m = line.match(
-    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dvu|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s*[:\s]?\s*(\d+(?:[.,]\d+)?(?:\.000)?)\s*k?\s*[\/]?\s*(ph[oòó]ng|ph\.?|ng[ưu][oờ]i|ng\.?|người)?/i
+    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s*[:\s]\s*(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
+  ) || line.match(
+    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
+  ) || line.match(
+    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s+(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
+  ) || line.match(
+    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s+(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
   );
 
   if (m) {
@@ -529,8 +558,8 @@ for (const line of lines) {
                || xeLine.match(/ch[ỉi]\s*nh[aậ]n\s*(\d+)\s*xe/i);
     if(toiDa){ p.xe = 'free '+toiDa[1]+' xe'; }
     else{
-      const num = xeLine.match(/free\s*(\d+)\s*(?:xe|chi[eế]c|cái)/i)
-               || xeLine.match(/(\d+)\s*(?:xe|chi[eế]c)\s*free/i);
+      const num = xeLine.match(/free\s*(\d+)\s*(?:xe|chi[eế]c|cái|c\b)/i)
+               || xeLine.match(/(\d+)\s*(?:xe|chi[eế]c|c\b)\s*free/i);
       if(num) p.xe = 'free '+num[1]+' xe';
       else if(/free|mi[eễ]n\s*ph[ií]/i.test(xeLine)){
         const maxXe = xeLine.match(/t[oố]i\s*đa\s*(\d+)/i);
@@ -546,13 +575,14 @@ for (const line of lines) {
 
   // ── Mô tả ────────────────────────────────────────────────
   const motaMap = [
-    {tags:['gác lửng','gác'],out:'Gác'},
+    {tags:['gác lửng','gác'],out:'Duplex'},
     {tags:['ban công'],out:'Ban công'},
-    {tags:['cửa sổ trời','giếng trời'],out:'Cửa sổ trời'},
-    {tags:['cửa sổ'],out:'Cửa sổ'},
+    {tags:['cửa sổ trời'],out:'Cửa sổ trời'},
+    {tags:['cửa sổ','giếng trời'],out:'Cửa sổ'},
     {tags:['tách bếp','bếp riêng'],out:'Tách bếp'},
     {tags:['máy giặt riêng'],out:'Máy giặt riêng'},
-    {tags:['thang máy'],out:'Thang máy'},
+    {tags:['máy sấy'],out:'Máy sấy'},
+    {tags:['bảo vệ','bvệ','bve'],out:'Bảo vệ'},
     {tags:['studio'],out:'Studio'},
     {tags:['1 phòng ngủ','1pn'],out:'1PN'},
     {tags:['2 phòng ngủ','2pn'],out:'2PN'},
