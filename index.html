@@ -236,7 +236,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const MOTA_OPTS = ['1PN','2PN','1PK','Studio','Duplex','Ban công','Cửa sổ','Cửa sổ trời','Tách bếp','Máy giặt riêng','Máy sấy','Bảo vệ'];
+const MOTA_OPTS = ['1PN','2PN','1PK','Studio','Duplex','Ban công','Cửa sổ','Cửa sổ trời','Tách bếp','Máy giặt riêng','Máy sấy','Bảo vệ', 'Mặt tiền đường'];
 const ADDR_LOWER = new Set(['đường','quận','phường','hẻm','ngõ','xã','thị','tổ','và','số','tại']);
 const NAV_IDS = ['inp-diachi','inp-gia','inp-dien','inp-nuoc','inp-dv','inp-xe'];
 const REQUIRED_ROWS = ['row-diachi','row-gia','row-dien','row-nuoc','row-dv','row-xe'];
@@ -411,7 +411,10 @@ function doParseAI(){
   function toK(s){
     if(!s) return null;
     s = s.replace(/\s/g,'');
-    // Trường hợp đã có chữ k ở cuối: "4k", "4.5k", "200k"
+    // Dang 3k8 = 3.8k (vi du: Dien 3k8)
+    const kDotK = s.match(/^(\d+)k(\d+)$/i);
+    if(kDotK) return parseFloat(kDotK[1] + '.' + kDotK[2]);
+    // Truong hop da co chu k o cuoi: "4k", "4.5k", "200k"
     const kMatch = s.match(/^(\d+(?:[.,]\d+)?)k$/i);
     if(kMatch) return parseFloat(kMatch[1].replace(',','.'));
     // Chuẩn hóa dấu ngăn hàng nghìn kiểu VN: 4.000→4000, 100.000→100000, 200.000→200000
@@ -482,11 +485,14 @@ function doParseAI(){
            || line.match(/(\d+(?:[.,]\d+)?)\s*k\s*[\/]\s*(?:kw[h]?|k[yý])/i)
            || line.match(/đi[eệ]n\s*[:\s]\s*(\d+(?:[.,]\d{3})+)/i)
            || line.match(/đi[eệ]n\s+(\d+(?:[.,]\d{3})+)\s*đ/i)
-           || line.match(/đi[eệ]n\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k/i);
+           || line.match(/đi[eệ]n\s*[:\s*\s]?\s*(\d+k\d+)/i)
+           || line.match(/đi[eệ]n\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k/i)
+           || line.match(/đi[eệ]n\s+(\d+(?:[.,]\d+)?)\s*k/i);
     if(m){ p.dien = toK(m[1]); break; }
   }
   if(!p.dien){
     const dm = raw.match(/(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]\s*(?:kw[h]?|k[yý])/i)
+            || raw.match(/đi[eệ]n\s*[:\s]?\s*(\d+k\d+)/i)
             || raw.match(/đi[eệ]n\s*[:\s]?\s*(\d+(?:[.,]\d{3})+)/i);
     if(dm) p.dien = toK(dm[1]);
   }
@@ -497,7 +503,9 @@ function doParseAI(){
     const m = line.match(/n[ưu][oờớ]c\s*[:\s]\s*(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
            || line.match(/n[ưu][oờớ]c\s+(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
            || line.match(/n[ưu][oờớ]c\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
-           || line.match(/n[ưu][oờớ]c\s+(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i);
+           || line.match(/n[ưu][oờớ]c\s+(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ng[ưu][oờ]i|ng\.?|người|m3|m[³3])?/i)
+           || line.match(/n[ưu][oờớ]c\s*[:\s]?\s*(\d+)\s*\/\s*(ng[ưu][oờ]i|người|ng\.?|m3|m[³3])/i)
+           || line.match(/n[ưu][oờớ]c\s+(\d+)\s*\/\s*(ng[ưu][oờ]i|người|ng\.?|m3|m[³3])/i);
     if(m){
       p.nuoc = toK(m[1]);
       p.nuoc_unit = (m[2]||'').match(/m3|m[³3]/i) ? 'm3' : 'người';
@@ -513,22 +521,7 @@ function doParseAI(){
 for (const line of lines) {
   if (!DV_KW.test(line)) continue;
 
-  // Case: free / miễn phí
-  if (/free|mi[eễ]n\s*ph[ií]/i.test(line)) {
-    p.dv = 'free';
-
-    // Nếu có "người" thì unit = người
-    if (/ng[ưu][oờ]i|người/i.test(line)) {
-      p.dv_unit = 'người';
-    } else {
-      p.dv_unit = 'phòng';
-    }
-
-    break;
-  }
-
-  // Case: có giá tiền
-  // DV_UNIT_PAT unused now (inline)
+  // Thử bắt giá trước — để tránh nhầm "Free 2xe" cùng dòng thành DV free
   const DV_KW_VAL = /d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly/i;
   const m = line.match(
     /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s*[:\s]\s*(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
@@ -538,6 +531,8 @@ for (const line of lines) {
     /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s+(\d+(?:[.,]\d{3})+)\s*đ?\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
   ) || line.match(
     /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s+(\d+(?:[.,]\d+)?)\s*k\s*[\/]?\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|ng\b|người)?/i
+  ) || line.match(
+    /(?:ph[ií]\s*)?(?:d[ịi]ch\s*v[ụu]|dv[ụu]|dvu|(?<![A-Za-z\d])dv(?![A-Za-z\d])|qu[aả]n\s*l[yý]|q\.?l[yý]|qly)\s*(?:chung)?\s*[:\s]?\s*(\d+)\s*\/\s*(ph[oòó]ng|ph\b|ng[ưu][oờ]i|người|ng\.?)/i
   );
 
   if (m) {
@@ -545,29 +540,43 @@ for (const line of lines) {
     p.dv_unit = (m[2] || '').match(/ng[ưu]|người/i)
       ? 'người'
       : 'phòng';
+    break;
+  }
 
+  // Case: free / miễn phí (chỉ khi không có giá)
+  if (/free|mi[eễ]n\s*ph[ií]/i.test(line)) {
+    p.dv = 'free';
+    p.dv_unit = /ng[ưu][oờ]i|người/i.test(line) ? 'người' : 'phòng';
     break;
   }
 }
   // ── Xe ───────────────────────────────────────────────────
   const XE_EXCL = /xe\s*điện|không\s*xe|cấm\s*xe/i;
-  const xeLine = lines.find(l=>/\bxe\b/i.test(l) && !XE_EXCL.test(l) &&
-    /free|mi[eễ]n|t[oố]i\s*đa|ch[ỉi]\s*nh[aậ]n|\d+\s*k|\d+(?:[.,]\d{3})/i.test(l));
+  // Ưu tiên dòng chuyên về xe (có free/miễn/số xe), tránh dòng mixed chứa dien/nuoc/dvu
+  const XE_MIXED = /đi[eệ]n|n[ưu][oờớ]c|d[ịi]ch\s*v|dvu|dv[ụu]/i;
+  const xeLine = lines.find(l=>/xe/i.test(l) && !XE_EXCL.test(l) &&
+    /free|mi[eễ]n|t[oố]i\s*đa|ch[ỉi]\s*nh[aậ]n|\d+\s*k|\d+(?:[.,]\d{3})|\d+\s*(?:xe|c\b)/i.test(l) &&
+    !XE_MIXED.test(l)
+  ) || lines.find(l=>/xe/i.test(l) && !XE_EXCL.test(l) &&
+    /free\s*\d+\s*(?:xe|c\b)|\d+\s*(?:xe|c\b)\s*free|free\s*\d+xe|\d+\s*xe\s*m[aá]y/i.test(l)
+  );
   if(xeLine){
     const toiDa = xeLine.match(/t[oố]i\s*đa\s*(\d+)\s*xe/i)
                || xeLine.match(/ch[ỉi]\s*nh[aậ]n\s*(\d+)\s*xe/i);
     if(toiDa){ p.xe = 'free '+toiDa[1]+' xe'; }
     else{
       const num = xeLine.match(/free\s*(\d+)\s*(?:xe|chi[eế]c|cái|c\b)/i)
-               || xeLine.match(/(\d+)\s*(?:xe|chi[eế]c|c\b)\s*free/i);
+               || xeLine.match(/(\d+)\s*(?:xe|chi[eế]c|c\b)\s*free/i)
+               || xeLine.match(/(\d+)\s*xe\s*m[aá]y/i)
+               || xeLine.match(/xe\s*free\s*(\d+)\s*c\b/i);
       if(num) p.xe = 'free '+num[1]+' xe';
       else if(/free|mi[eễ]n\s*ph[ií]/i.test(xeLine)){
         const maxXe = xeLine.match(/t[oố]i\s*đa\s*(\d+)/i);
         p.xe = maxXe ? 'free '+maxXe[1]+' xe' : 'free xe';
       } else {
         const price = xeLine.match(/(\d+(?:[.,]\d{3})?)\s*k?\s*\/\s*xe/i)
-                   || xeLine.match(/(\d+(?:[.,]\d{3})?)\s*k/i);
-        if(price) p.xe = String(toK(price[1]));
+                   || xeLine.match(/xe\s*[:\s]\s*(\d+(?:[.,]\d+)?)\s*k/i);
+        if(price) p.xe = String(toK(price[1]))+'k/xe';
         else p.xe = 'free xe';
       }
     }
@@ -575,14 +584,13 @@ for (const line of lines) {
 
   // ── Mô tả ────────────────────────────────────────────────
   const motaMap = [
-    {tags:['gác lửng','gác'],out:'Duplex'},
+    {tags:['gác lửng','gác','duplex'],out:'Duplex'},
     {tags:['ban công'],out:'Ban công'},
     {tags:['cửa sổ trời'],out:'Cửa sổ trời'},
     {tags:['cửa sổ','giếng trời'],out:'Cửa sổ'},
     {tags:['tách bếp','bếp riêng'],out:'Tách bếp'},
     {tags:['máy giặt riêng'],out:'Máy giặt riêng'},
     {tags:['máy sấy'],out:'Máy sấy'},
-    {tags:['bảo vệ','bvệ','bve'],out:'Bảo vệ'},
     {tags:['studio'],out:'Studio'},
     {tags:['1 phòng ngủ','1pn'],out:'1PN'},
     {tags:['2 phòng ngủ','2pn'],out:'2PN'},
